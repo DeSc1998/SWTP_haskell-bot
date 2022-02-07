@@ -1,15 +1,14 @@
-module Main
-where
+module Main where
 
 -- Diese Datei ist nicht Teil der Abgabe, sondern
 -- nur als Hilfe fuer das Erstellen eines ausfuehrbaren Bots
 
 -- DIESES MODUL NICHT ÄNDERN!!!
 
-import System.Environment
-import qualified Data.List as List
+import qualified Data.List                     as List
+import           System.Environment
 
-import XiangqiBot
+import           XiangqiBot
 
 -- Wer hier mehr erfahren will: Im naechsten Schritt (nicht Teil des Stoffs) kann in Haskell
 -- mit Monaden impliziter ein Zustand definiert und in sequentieller Ausfuehrung mitgefuehrt werden
@@ -17,5 +16,5 @@ import XiangqiBot
 main :: IO ()
 main = do
   args <- getArgs
-  let oneString = concat (List.intersperse " " args)
-  putStrLn ( getMove oneString )
+  let oneString = unwords args
+  putStrLn (getMove oneString)

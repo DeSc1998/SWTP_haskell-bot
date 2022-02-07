@@ -11,6 +11,7 @@ import           Data.Char
 import           Util
 
 import           Control.Applicative
+import           Data.Maybe
 
 data Color = Red
            | Black
@@ -34,7 +35,6 @@ type Move = (Position, Position)
 newtype Parser a = Parser { run :: String -> Maybe (a, String) }
   deriving Functor
 
-
 instance Applicative Parser where
   pure x = Parser $ \y -> Just (x, y)
   p1 <*> p2 = Parser
@@ -45,9 +45,15 @@ instance Applicative Parser where
     )
 
 instance Alternative Parser where
-  empty = Parser $ \_ -> Nothing
-
+  empty = Parser $ const Nothing
   (Parser p1) <|> (Parser p2) = Parser $ \input -> p1 input <|> p2 input
+
+instance Semigroup (Parser a) where
+  p1 <> p2 = p1 <|> p2
+
+instance Monoid (Parser a) where
+  mempty = empty
+
 
 piceColor :: Char -> Color
 piceColor c | isUpper c = Red
@@ -82,11 +88,14 @@ piceToChar (Cano c) | c == Red   = 'C'
 piceToChar (Sold c) | c == Red   = 'S'
                     | c == Black = 's'
 
+convertPos :: Position -> String
+convertPos (x, y) = [chr (x + ord 'a'), chr y]
+
+convertMove :: Move -> String
+convertMove (start, end) = convertPos start ++ "-" ++ convertPos end
+
 charPices :: String
 charPices = "GAEHRCSgaehrcs123456789"
-
-charsVert :: String
-charsVert = "0123456789"
 
 charsHori :: String
 charsHori = "abcdefghi"
@@ -97,47 +106,64 @@ expandNone (None n) | n > 1  = None 1 : expandNone (None (n - 1))
                     | n < 1  = []
 expandNone p = [p]
 
-collapseNone :: [Pice] -> [Pice]
-collapseNone = undefined
+expand :: [Pice] -> [Pice]
+expand = concatMap expandNone
+
+collapse :: [Pice] -> [Pice]
+collapse ((None n) : None 1 : rest) = collapse (None (n + 1) : rest)
+collapse (p                 : rest) = p : collapse rest
+collapse []                         = []
 
 charP :: Char -> Parser Char
 charP c = Parser f where
-  f input | head input == c = Just (c, tail input)
-          | otherwise       = Nothing
+  f (x : xs) | x == c    = Just (x, xs)
+             | otherwise = Nothing
+  f [] = Nothing
+
+predicateP :: (Char -> Bool) -> Parser Char
+predicateP pre = Parser f where
+  f (x : xs) | pre x     = Just (x, xs)
+             | otherwise = Nothing
+  f [] = Nothing
+
+
 
 pPice :: Char -> Parser Pice
 pPice c = charToPice <$> charP c
 
 piceP :: Parser Pice
-piceP = foldl (<|>) empty $ map pPice charPices
+piceP = foldMap pPice charPices
 
 rowP :: Parser Row
 rowP = many piceP
 
 boardP :: Parser Board
-boardP = many ((rowP <* charP '/') <|> rowP)
+boardP = many (rowP <* (charP '/' <|> charP ' '))
 
-vertP = foldl (<|>) empty $ map charP charsVert
-horiP = foldl (<|>) empty $ map charP charsHori
 
 fieldP :: Parser Position
-fieldP = (\x y -> (,) (digitToInt x) (ord y - ord 'a')) <$> vertP <*> horiP
+fieldP = (\x y -> (,) (ord x - ord 'a') (ord y - ord '0')) <$> horiP <*> vertP where
+  vertP = predicateP isDigit
+  horiP = foldMap charP charsHori
 
 moveP :: Parser Move
 moveP = (,) <$> (fieldP <* charP '-') <*> fieldP
 
 moveListP :: Parser [Move]
-moveListP = many $ (moveP <* charP ';') <|> moveP
+moveListP = many (moveP <* charP ';')
 
+playerP :: Parser Color
+playerP = f <$> (charP 'r' <|> charP 'b') where
+  f c | c == 'r'  = Red
+      | c == 'b'  = Black
+      | otherwise = undefined
 
+configP :: Parser (Board, Color)
+configP = (,) <$> boardP <*> playerP
 
 --- external signatures (NICHT ÄNDERN!)
 getMove :: String -> String
-getMove = undefined
--- input = do
---   (moves, _) <- run moveListP input
---   head moves
-
+getMove xs = convertMove . fromJust $ (head . fst <$> run moveListP xs)
 
 listMoves :: String -> String
 listMoves xs = xs -- YOUR IMPLEMENTATION HERE
