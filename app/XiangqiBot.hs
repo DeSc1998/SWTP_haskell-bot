@@ -161,12 +161,14 @@ playerP = f <$> (charP 'r' <|> charP 'b') where
 configP :: Parser (Board, Color)
 configP = (,) <$> boardP <*> playerP
 
---- external signatures (NICHT ÄNDERN!)
+-- TODO: 'getMove' currently only picks the first move
+--       needs proper implementation
 getMove :: String -> String
 getMove xs = convertMove . fromJust $ (head . fst <$> run moveListP xs)
 
+-- TODO: implement 'listMoves'
 listMoves :: String -> String
-listMoves xs = xs -- YOUR IMPLEMENTATION HERE
+listMoves xs = xs
 
 
 -- YOUR IMPLEMENTATION FOLLOWS HERE
