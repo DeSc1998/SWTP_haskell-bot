@@ -12,6 +12,7 @@ where
 import Control.Applicative
 import Data.Char
 import Data.Maybe
+import GHC.Utils.Misc
 import Util
 
 data Color
@@ -204,9 +205,10 @@ movesOfPice (Rook c) (x, y) = (,) (x, y) <$> (hori ++ vert)
     hori = (,) x <$> take 10 [0 ..]
     f x = (,) x y
     vert = map f $ take 10 [0 ..]
+movesOfPice (Cano c) pos = movesOfPice (Rook c) pos
 movesOfPice (Sold c) (x, y)
-  | y < 5 && c == Red = (,) (x, y) <$> filterPos [(x, y + 1)]
-  | y > 4 && c == Black = (,) (x, y) <$> filterPos [(x, y - 1)]
+  | y < 5 && c == Red = (,) (x, y) <$> [(x, y + 1)]
+  | y > 4 && c == Black = (,) (x, y) <$> [(x, y - 1)]
   | y > 4 && c == Red = (,) (x, y) <$> filterPos [(x, y + 1), (x + 1, y), (x - 1, y)]
   | y < 5 && c == Black = (,) (x, y) <$> filterPos [(x, y - 1), (x + 1, y), (x - 1, y)]
 movesOfPice (Gene c) (x, y) = (,) (x, y) <$> filterPos [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
@@ -218,7 +220,6 @@ movesOfPice (Hors c) (x, y) = (,) (x, y) <$> filterPos (upMoves ++ downMoves ++ 
     downMoves = [(x + 1, y - 2), (x - 1, y - 2)]
     leftMoves = [(x - 2, y + 1), (x - 2, y - 1)]
     rightMoves = [(x + 2, y + 1), (x + 2, y - 1)]
-movesOfPice (Cano c) pos = movesOfPice (Rook c) pos
 
 at :: Int -> [a] -> a
 at 0 (x : _) = x
@@ -231,8 +232,69 @@ posToPice (x, y) b
   | isInBound (x, y) = at x $ at y b
   | otherwise = None 0
 
+isOpponent :: Pice -> Color -> Bool
+isOpponent (None _) _ = False
+isOpponent (Gene c1) c2 = c1 /= c2
+isOpponent (Advi c1) c2 = c1 /= c2
+isOpponent (Elep c1) c2 = c1 /= c2
+isOpponent (Hors c1) c2 = c1 /= c2
+isOpponent (Cano c1) c2 = c1 /= c2
+isOpponent (Rook c1) c2 = c1 /= c2
+isOpponent (Sold c1) c2 = c1 /= c2
+
+verticalRow :: Int -> Board -> Row
+verticalRow x b = map f $ take 10 [0 ..]
+  where
+    f y = posToPice (x, y) b
+
+horizontalRow :: Int -> Board -> Row
+horizontalRow = at
+
+-- assume the move is only in one row or colum
+blockCount :: Move -> Board -> Int
+blockCount (start, end) b
+  | xDiff == 0 = length vertRow - count (== None 1) vertRow
+  | yDiff == 0 = length horiRow - count (== None 1) horiRow
+  where
+    (xDiff, yDiff) = diff end start
+    (x, y) = start
+    vertRow = tail . reverse . tail $ verticalRow x b
+    horiRow = tail . reverse . tail $ horizontalRow y b
+
+-- assume the end position is in bound
 isValidMove :: Pice -> Move -> Board -> Bool
-isValidMove pice (start, end) board = undefined
+isValidMove (None _) (start, end) board = False
+isValidMove p (start, (x, y)) board
+  | p == Gene Red || p == Advi Red = y >= 0 && y < 3 && x > 2 && x < 6 && (pice == None 1 || isOpponent pice Red)
+  | p == Gene Black || p == Advi Black = y >= 7 && y < 10 && x > 2 && x < 6 && (pice == None 1 || isOpponent pice Black)
+  where
+    pice = posToPice (x, y) board
+isValidMove (Hors c) (start, (x, y)) board = (pice == None 1 || isOpponent pice c) && ((verticalMove && piceVert == None 1) || (horizontalMove && piceHori == None 1))
+  where
+    pice = posToPice (x, y) board
+    (xDiff, yDiff) = diff (x, y) start
+    verticalMove = abs xDiff > abs yDiff
+    horizontalMove = abs yDiff > abs xDiff
+    piceHori = posToPice (x + quot xDiff 2, y) board
+    piceVert = posToPice (x, y + quot yDiff 2) board
+isValidMove (Elep c) (start, (x, y)) board
+  | c == Red = (pice == None 1 || isOpponent pice c) && piceBlock == None 1 && y < 5
+  | c == Black = (pice == None 1 || isOpponent pice c) && piceBlock == None 1 && y > 4
+  where
+    pice = posToPice (x, y) board
+    (xDiff, yDiff) = diff (x, y) start
+    piceBlock = posToPice (diff start (quot (-xDiff) 2, quot (-yDiff) 2)) board
+isValidMove (Sold c) (_, (x, y)) board = pice == None 1 || isOpponent pice c
+  where
+    pice = posToPice (x, y) board
+isValidMove (Rook c) (start, (x, y)) board = (pice == None 1 || isOpponent pice c) && counts == 0
+  where
+    pice = posToPice (x, y) board
+    counts = blockCount (start, (x, y)) board
+isValidMove (Cano c) (start, (x, y)) board = (pice == None 1 && counts == 0) || (isOpponent pice c && counts == 1)
+  where
+    pice = posToPice (x, y) board
+    counts = blockCount (start, (x, y)) board
 
 -- TODO: implement 'listMoves'
 listMoves :: String -> String
