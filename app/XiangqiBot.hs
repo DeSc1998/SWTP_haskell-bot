@@ -202,8 +202,8 @@ movesOfPice :: Pice -> Position -> [Move]
 movesOfPice (None _) pos = []
 movesOfPice (Rook c) (x, y) = (,) (x, y) <$> (hori ++ vert)
   where
-    hori = (,) x <$> take 10 [0 ..]
-    f x = (,) x y
+    hori = (,) x <$> take 9 [0 ..]
+    f x = (x, y)
     vert = map f $ take 10 [0 ..]
 movesOfPice (Cano c) pos = movesOfPice (Rook c) pos
 movesOfPice (Sold c) (x, y)
@@ -296,8 +296,25 @@ isValidMove (Cano c) (start, (x, y)) board = (pice == None 1 && counts == 0) || 
     pice = posToPice (x, y) board
     counts = blockCount (start, (x, y)) board
 
--- TODO: implement 'listMoves'
+indexPices :: Position -> Row -> [(Pice, Position)]
+indexPices (x, y) (pice : pices) = (pice, (x, y)) : indexPices (x + 1, y) pices
+indexPices _ [] = []
+
+-- assume the board is already expanded
+playerPices :: Color -> Board -> [(Pice, Position)]
+playerPices c b = filter f $ concat indexedBoard
+  where
+    f (pice, pos) = not $ isOpponent pice c
+    g (y, row) = indexPices (0, y) row
+    indexedBoard = zipWith (curry g) (take 10 [0 ..]) b
+
 listMoves :: String -> String
-listMoves xs = xs
+listMoves strBoard = concatMap convertMove moves
+  where
+    (board, player) = fst . fromJust $ run configP strBoard
+    listPiceMoves (pice, pos) = (pice, movesOfPice pice pos)
+    valid pice move = isValidMove pice move board
+    filterValidMoves (pice, moves) = filter (valid pice) moves
+    moves = concatMap (filterValidMoves . listPiceMoves) $ playerPices player $ map expand board
 
 -- YOUR IMPLEMENTATION FOLLOWS HERE
