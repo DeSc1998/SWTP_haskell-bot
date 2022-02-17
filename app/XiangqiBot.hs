@@ -182,7 +182,7 @@ playerP = f <$> (charP 'r' <|> charP 'b')
 configP :: Parser (Board, Color)
 configP = f <$> boardP <*> playerP
   where
-    f b p = (,) (reverse b) p
+    f b p = (reverse b, p)
 
 -- TODO: 'getMove' currently only picks the first move
 --       needs proper implementation
@@ -193,16 +193,16 @@ diff :: Position -> Position -> Position
 diff (x1, y1) (x2, y2) = (x1 - x2, y1 - y2)
 
 isInBound :: Position -> Bool
-isInBound (x, y) = x >= 0 && x < 10 && y >= 0 && y < 10
+isInBound (x, y) = x >= 0 && x < 9 && y >= 0 && y < 10
 
 filterPos :: [Position] -> [Position]
 filterPos = filter isInBound
 
 movesOfPice :: Pice -> Position -> [Move]
 movesOfPice (None _) pos = []
-movesOfPice (Rook c) (x, y) = (,) (x, y) <$> (hori ++ vert)
+movesOfPice (Rook c) (x, y) = (,) (x, y) <$> filterPos (hori ++ vert)
   where
-    hori = (,) x <$> take 9 [0 ..]
+    hori = (,) x <$> take 10 [0 ..]
     f x = (x, y)
     vert = map f $ take 10 [0 ..]
 movesOfPice (Cano c) pos = movesOfPice (Rook c) pos
@@ -317,5 +317,3 @@ listMoves strBoard = concatMap convert moves
     filterValidMoves (pice, moves) = filter (valid pice) moves
     moves = concatMap (filterValidMoves . listPiceMoves) $ playerPices player $ map expand board
     convert m = convertMove m ++ ";"
-
--- YOUR IMPLEMENTATION FOLLOWS HERE
