@@ -309,12 +309,13 @@ playerPices c b = filter f $ concat indexedBoard
     indexedBoard = zipWith (curry g) (take 10 [0 ..]) b
 
 listMoves :: String -> String
-listMoves strBoard = concatMap convertMove moves
+listMoves strBoard = concatMap convert moves
   where
     (board, player) = fst . fromJust $ run configP strBoard
     listPiceMoves (pice, pos) = (pice, movesOfPice pice pos)
     valid pice move = isValidMove pice move board
     filterValidMoves (pice, moves) = filter (valid pice) moves
     moves = concatMap (filterValidMoves . listPiceMoves) $ playerPices player $ map expand board
+    convert m = convertMove m ++ ";"
 
 -- YOUR IMPLEMENTATION FOLLOWS HERE
