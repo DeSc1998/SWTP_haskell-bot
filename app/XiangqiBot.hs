@@ -12,8 +12,33 @@ where
 import Control.Applicative
 import Data.Char
 import Data.Maybe
-import GHC.Utils.Misc
 import Util
+
+-- TODO: 'getMove' currently only picks the first move
+--       needs proper implementation
+getMove :: String -> String
+getMove strBoard = convertMove . head . fst . fromJust . run moveListP $ strMoves moves
+  where
+    (board, player) = fst . fromJust $ run configP strBoard
+    moves = availableMoves player $ map expand board
+    convert m = convertMove m ++ ","
+    strMoves ms = "[" ++ concatMap convert ms ++ "]"
+
+listMoves :: String -> String
+listMoves strBoard = "[" ++ concatMap convert moves ++ "]"
+  where
+    (board, player) = fst . fromJust $ run configP strBoard
+    moves = availableMoves player $ map expand board
+    convert m = convertMove m ++ ","
+
+-- assume board is already expanded
+availableMoves :: Color -> Board -> [Move]
+availableMoves player board = moves
+  where
+    listPiceMoves (pice, pos) = (pice, movesOfPice pice pos)
+    valid pice move = isValidMove pice move board
+    filterValidMoves (pice, moves) = filter (valid pice) moves
+    moves = concatMap (filterValidMoves . listPiceMoves) $ playerPices player board
 
 data Color
   = Red
@@ -131,6 +156,7 @@ collapse ((None n) : None 1 : rest) = collapse (None (n + 1) : rest)
 collapse (p : rest) = p : collapse rest
 collapse [] = []
 
+-- Parser definitions
 charP :: Char -> Parser Char
 charP c = Parser f
   where
@@ -169,7 +195,7 @@ moveP :: Parser Move
 moveP = (,) <$> (fieldP <* charP '-') <*> fieldP
 
 moveListP :: Parser [Move]
-moveListP = many (moveP <* charP ';')
+moveListP = charP '[' *> many (moveP <* charP ',') <* charP ']'
 
 playerP :: Parser Color
 playerP = f <$> (charP 'r' <|> charP 'b')
@@ -184,11 +210,33 @@ configP = f <$> boardP <*> playerP
   where
     f b p = (reverse b, p)
 
--- TODO: 'getMove' currently only picks the first move
---       needs proper implementation
-getMove :: String -> String
-getMove = convertMove . head . fst . fromJust . run moveListP
+-- end of Parser definitions
 
+-- Move evaluation
+piceValue :: Pice -> Int
+piceValue (None _) = 0
+piceValue (Gene _) = 10000
+piceValue (Advi _) = 1
+piceValue (Rook _) = 10
+piceValue (Cano _) = 7
+piceValue (Hors _) = 5
+piceValue (Sold _) = 3
+piceValue (Elep _) = 3
+
+isPice :: Pice -> Bool
+isPice (None _) = False
+isPice _ = True
+
+evaluateBoard :: Color -> Board -> Int
+evaluateBoard c = sum . map f . filter isPice . concat
+  where
+    f p
+      | isOpponent p c = -(piceValue p)
+      | otherwise = piceValue p
+
+-- end of Move evaluation
+
+-- listing of Moves
 diff :: Position -> Position -> Position
 diff (x1, y1) (x2, y2) = (x1 - x2, y1 - y2)
 
@@ -200,11 +248,11 @@ filterPos = filter isInBound
 
 movesOfPice :: Pice -> Position -> [Move]
 movesOfPice (None _) pos = []
-movesOfPice (Rook c) (x, y) = (,) (x, y) <$> filterPos (hori ++ vert)
+movesOfPice (Rook c) (x, y) = (,) (x, y) <$> (hori ++ vert)
   where
     hori = (,) x <$> take 10 [0 ..]
     f x = (x, y)
-    vert = map f $ take 10 [0 ..]
+    vert = map f $ take 9 [0 ..]
 movesOfPice (Cano c) pos = movesOfPice (Rook c) pos
 movesOfPice (Sold c) (x, y)
   | y < 5 && c == Red = (,) (x, y) <$> [(x, y + 1)]
@@ -260,6 +308,10 @@ blockCount (start, end) b
     (x, y) = start
     vertRow = tail . reverse . tail $ verticalRow x b
     horiRow = tail . reverse . tail $ horizontalRow y b
+    count pre pices
+      | null pices = 0
+      | pre $ head pices = 1 + count pre (tail pices)
+      | otherwise = count pre (tail pices)
 
 -- assume the end position is in bound
 isValidMove :: Pice -> Move -> Board -> Bool
@@ -308,12 +360,4 @@ playerPices c b = filter f $ concat indexedBoard
     g (y, row) = indexPices (0, y) row
     indexedBoard = zipWith (curry g) (take 10 [0 ..]) b
 
-listMoves :: String -> String
-listMoves strBoard = concatMap convert moves
-  where
-    (board, player) = fst . fromJust $ run configP strBoard
-    listPiceMoves (pice, pos) = (pice, movesOfPice pice pos)
-    valid pice move = isValidMove pice move board
-    filterValidMoves (pice, moves) = filter (valid pice) moves
-    moves = concatMap (filterValidMoves . listPiceMoves) $ playerPices player $ map expand board
-    convert m = convertMove m ++ ";"
+-- end of listing of Moves
