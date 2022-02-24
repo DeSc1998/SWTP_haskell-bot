@@ -10,36 +10,39 @@ module XiangqiBot
 
 import           Control.Applicative
 import           Data.Char
+import           Data.List
+import qualified Data.Map.Strict               as Map
 import           Data.Maybe
-import           Util
+-- import           Util
 
--- TODO: 'getMove' currently only picks the first move
---       needs proper implementation
 getMove :: String -> String
-getMove strBoard =
-  convertMove . head . fst . fromJust . run moveListP $ strMoves moves
+getMove strBoard = convertMove move
  where
-  (board, player) = fst . fromJust $ run configP strBoard
-  moves           = availableMoves player $ map expand board
-  convert m = convertMove m ++ ","
-  strMoves ms = "[" ++ concatMap convert ms ++ "]"
+  (board, player)  = fst . fromJust $ run configP strBoard
+  moves            = availableMoves player board
+  (_, moveHistory) = pickBest $ rateMoves 4 [moves] player [(board, [])]
+  move             = last moveHistory
 
 listMoves :: String -> String
 listMoves strBoard = "[" ++ concatMap convert moves ++ "]"
  where
   (board, player) = fst . fromJust $ run configP strBoard
-  moves           = availableMoves player $ map expand board
+  moves           = availableMoves player board
   convert m = convertMove m ++ ","
 
 -- assume board is already expanded
 availableMoves :: Color -> Board -> [Move]
 availableMoves player board = moves
  where
-  listPiceMoves (pice, pos) = (pice, movesOfPice pice pos)
+  listPiceMoves pos pice = (pice, movesOfPice pice pos)
   valid pice move = isValidMove pice move board
   filterValidMoves (pice, ms) = filter (valid pice) ms
   moves =
-    concatMap (filterValidMoves . listPiceMoves) $ playerPices player board
+    concat
+      . Map.elems
+      . Map.map filterValidMoves
+      $ Map.mapWithKey listPiceMoves
+      $ playerPices player board
 
 data Color
   = Red
@@ -59,7 +62,9 @@ data Pice
 
 type Row = [Pice]
 
-type Board = [Row]
+type BoardOld = [Row]
+
+type Board = Map.Map Position Pice
 
 type Position = (Int, Int)
 
@@ -103,23 +108,6 @@ charToPice c | toUpper c == 'G' = Gene (piceColor c)
              | isDigit c        = None (ord c - ord '0')
              | otherwise        = undefined
 
-piceToChar :: Pice -> Char
-piceToChar (None n) = chr n
-piceToChar (Gene c) | c == Red   = 'G'
-                    | c == Black = 'g'
-piceToChar (Advi c) | c == Red   = 'A'
-                    | c == Black = 'a'
-piceToChar (Elep c) | c == Red   = 'E'
-                    | c == Black = 'e'
-piceToChar (Hors c) | c == Red   = 'H'
-                    | c == Black = 'h'
-piceToChar (Rook c) | c == Red   = 'R'
-                    | c == Black = 'r'
-piceToChar (Cano c) | c == Red   = 'C'
-                    | c == Black = 'c'
-piceToChar (Sold c) | c == Red   = 'S'
-                    | c == Black = 's'
-
 convertPos :: Position -> String
 convertPos (x, y) = [chr (x + ord 'a'), chr (y + ord '0')]
 
@@ -128,9 +116,6 @@ convertMove (start, end) = convertPos start ++ "-" ++ convertPos end
 
 charPices :: String
 charPices = "GAEHRCSgaehrcs123456789"
-
-charsHori :: String
-charsHori = "abcdefghi"
 
 expandNone :: Pice -> [Pice]
 expandNone (None n) | n > 1  = None 1 : expandNone (None (n - 1))
@@ -141,23 +126,11 @@ expandNone p = [p]
 expand :: [Pice] -> [Pice]
 expand = concatMap expandNone
 
-collapse :: [Pice] -> [Pice]
-collapse []                         = []
-collapse ((None n) : None 1 : rest) = collapse (None (n + 1) : rest)
-collapse (p                 : rest) = p : collapse rest
-
 -- Parser definitions
 charP :: Char -> Parser Char
 charP c = Parser f
  where
   f (x : xs) | x == c    = Just (x, xs)
-             | otherwise = Nothing
-  f [] = Nothing
-
-predicateP :: (Char -> Bool) -> Parser Char
-predicateP pre = Parser f
- where
-  f (x : xs) | pre x     = Just (x, xs)
              | otherwise = Nothing
   f [] = Nothing
 
@@ -170,20 +143,8 @@ piceP = foldMap pPice charPices
 rowP :: Parser Row
 rowP = many piceP
 
-boardP :: Parser Board
+boardP :: Parser BoardOld
 boardP = many (rowP <* (charP '/' <|> charP ' '))
-
-fieldP :: Parser Position
-fieldP = (\x y -> (,) (ord x - ord 'a') (ord y - ord '0')) <$> horiP <*> vertP
- where
-  vertP = predicateP isDigit
-  horiP = foldMap charP charsHori
-
-moveP :: Parser Move
-moveP = (,) <$> (fieldP <* charP '-') <*> fieldP
-
-moveListP :: Parser [Move]
-moveListP = charP '[' *> many (moveP <* charP ',') <* charP ']'
 
 playerP :: Parser Color
 playerP = f <$> (charP 'r' <|> charP 'b')
@@ -193,14 +154,23 @@ playerP = f <$> (charP 'r' <|> charP 'b')
       | otherwise = undefined
 
 configP :: Parser (Board, Color)
-configP = f <$> boardP <*> playerP where f b p = (reverse b, p)
+configP = f <$> boardP <*> playerP
+ where
+  indexedRow (x, y) (p : ps) =
+    ((x, y), p) : indexedRow (x + 1, y) ps :: [(Position, Pice)]
+  indexedRow _ [] = []
+  indexed y (r : rs) =
+    indexedRow (0, y) r : indexed (y + 1) rs :: [[(Position, Pice)]]
+  indexed _ [] = []
+  convert = concat . indexed 0 . map expand . reverse
+  f b p = (Map.fromList $ convert b, p)
 
 -- end of Parser definitions
 
 -- Move evaluation
 piceValue :: Pice -> Int
 piceValue (None _) = 0
-piceValue (Gene _) = 10000
+piceValue (Gene _) = 1000
 piceValue (Advi _) = 1
 piceValue (Rook _) = 20
 piceValue (Cano _) = 15
@@ -213,10 +183,43 @@ isPice (None _) = False
 isPice _        = True
 
 evaluateBoard :: Color -> Board -> Int
-evaluateBoard c = sum . map f . filter isPice . concat
+evaluateBoard c = Map.foldl (+) 0 . Map.map f . Map.filter isPice
  where
   f p | isOpponent p c = -(piceValue p)
       | otherwise      = piceValue p
+
+setAt :: Position -> Pice -> Board -> Board
+setAt pos pice = Map.adjust f pos where f _ = pice
+
+
+-- assume the move is correct
+applyMove :: Move -> Board -> Board
+applyMove (start, end) b = board' where
+  sourcePice = posToPice start b
+  board      = setAt start (None 1) b
+  board'     = setAt end sourcePice board
+
+type History = [Move]
+
+applyMoves :: [Move] -> (Board, History) -> [(Board, History)]
+applyMoves moves (board, history) = map f moves
+  where f m = (applyMove m board, m : history)
+
+rateMoves :: Int -> [[Move]] -> Color -> [(Board, History)] -> [(Int, History)]
+rateMoves 0 _ c bhs = map f bhs where f (b, h) = (evaluateBoard c b, h)
+rateMoves depth moves c boards
+  | c == Red   = map negate $ rateMoves (depth - 1) moves' Black boards'
+  | c == Black = map negate $ rateMoves (depth - 1) moves' Red boards'
+ where
+  nextP | c == Red  = Black
+        | otherwise = Red
+  negate (r, h) = (-r, h)
+  boards' = concatMap (uncurry applyMoves) $ zip moves boards
+  movesOf (b, _) = availableMoves nextP b
+  moves' = map movesOf boards'
+
+pickBest :: [(Int, History)] -> (Int, History)
+pickBest = maximumBy (\(x, _) (y, _) -> compare x y)
 
 -- end of Move evaluation
 
@@ -259,14 +262,11 @@ movesOfPice (Hors _) (x, y) = (,) (x, y)
   leftMoves  = [(x - 2, y + 1), (x - 2, y - 1)]
   rightMoves = [(x + 2, y + 1), (x + 2, y - 1)]
 
-at :: Int -> [a] -> a
-at 0 (x : _) = x
-at n (_ : xs) | n > 0     = at (n - 1) xs
-              | otherwise = undefined
-
 posToPice :: Position -> Board -> Pice
-posToPice (x, y) b | isInBound (x, y) = at x $ at y b
-                   | otherwise        = None 0
+posToPice key = f . Map.lookup key
+ where
+  f (Just pice) = pice
+  f Nothing     = None 1
 
 isOpponent :: Pice -> Color -> Bool
 isOpponent (None _ ) _  = False
@@ -282,7 +282,7 @@ verticalRow :: Int -> Board -> Row
 verticalRow x b = map f $ take 10 [0 ..] where f y = posToPice (x, y) b
 
 horizontalRow :: Int -> Board -> Row
-horizontalRow = at
+horizontalRow y b = map f $ take 9 [0 ..] where f x = posToPice (x, y) b
 
 minmax :: Int -> Int -> (Int, Int)
 minmax x y | x < y     = (x, y)
@@ -306,6 +306,8 @@ blockCount (start, end) b
   count pre pices | null pices       = 0
                   | pre $ head pices = 1 + count pre (tail pices)
                   | otherwise        = count pre (tail pices)
+blockCount _ _ = 0
+
 
 -- assume the end position is in bound
 isValidMove :: Pice -> Move -> Board -> Bool
@@ -357,17 +359,11 @@ isValidMove (Cano c) (start, (x, y)) board =
  where
   pice   = posToPice (x, y) board
   counts = blockCount (start, (x, y)) board
+isValidMove _ _ _ = False
 
-indexPices :: Position -> Row -> [(Pice, Position)]
-indexPices (x, y) (pice : pices) = (pice, (x, y)) : indexPices (x + 1, y) pices
-indexPices _      []             = []
 
 -- assume the board is already expanded
-playerPices :: Color -> Board -> [(Pice, Position)]
-playerPices c b = filter f $ concat indexedBoard
- where
-  f (pice, _) = not $ isOpponent pice c
-  g (y, row) = indexPices (0, y) row
-  indexedBoard = zipWith (curry g) (take 10 [0 ..]) b
+playerPices :: Color -> Board -> Map.Map Position Pice
+playerPices c b = Map.filter f b where f pice = not $ isOpponent pice c
 
 -- end of listing of Moves
